@@ -1,0 +1,15 @@
+# Data (too large for Git, re-download from sources in README)
+data/raw/
+
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter auto-saves
+.ipynb_checkpoints/
+
+# macOS clutter
+.DS_Store
