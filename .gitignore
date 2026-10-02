@@ -13,3 +13,4 @@ __pycache__/
 
 # macOS clutter
 .DS_Store
+*.db

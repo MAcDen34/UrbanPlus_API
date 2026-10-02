@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 import geopandas as gpd
@@ -48,6 +49,13 @@ def save_results(df, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
 
+def save_to_database(population_df, validation_df, db_path):
+    """Store the results in a SQLite database for the API to query."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        population_df.to_sql("population", conn, if_exists="replace", index=False)
+        validation_df.to_sql("validation", conn, if_exists="replace", index=False)
+
 def main():
     districts = load_districts(DISTRICTS)
     population_df = build_population_table(districts)
@@ -55,6 +63,7 @@ def main():
 
     save_results(population_df, ROOT / "data/processed/population.csv")
     save_results(validation_df, ROOT / "data/processed/validation.csv")
+    save_to_database(population_df, validation_df, ROOT / "data/processed/database.db")
     print("Pipeline completed successfully. Results saved to data/processed/.")
 
 if __name__ == "__main__":
