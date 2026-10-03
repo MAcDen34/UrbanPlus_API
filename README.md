@@ -97,9 +97,36 @@ sqlite3 data/processed/database.db "SELECT * FROM population WHERE district = 'G
   its most recent years.
 - Only two districts so far.
 
+## Calibration experiment (Sprint 3)
+
+WorldPop estimates were calibrated against the 2012 census (RPHC4) by multiplying
+each district's series by the ratio census_2012 / worldpop_2012, keeping the 2022
+census untouched as the final test.
+
+| District | 2022 error (original) | 2022 error (calibrated) |
+|---|---|---|
+| Gasabo | +7.6% | +2.3% |
+| Musanze | -5.7% | -6.9% |
+
+Calibration fixes WorldPop's **level** but not its **growth rate**. Comparing annual
+growth rates shows WorldPop's speed is wrong in opposite directions:
+
+| District | Census growth (2012-2022) | WorldPop growth (2012-2020) |
+|---|---|---|
+| Gasabo | 5.20% per year | 5.94% per year (too fast) |
+| Musanze | 2.61% per year | 1.95% per year (too slow) |
+
+Hypothesis: WorldPop overstates growth in urban districts and understates it in
+rural ones. This needs testing across all 30 districts.
+
+Correcting the growth rate requires a second census point before the test year.
+The 2002 census exists, but no official figures by current district boundaries
+were found (checked: NISR RPHC4 thematic report on population size). Using the
+2022 census to correct growth would be data leakage. A data request has been
+sent to NISR.
+
 ## Next steps
 
-- Calibrate WorldPop against the 2012 census before training
 - Extend to all 30 districts
 - Serve results through a FastAPI layer reading from the SQLite database
 
