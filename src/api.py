@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import joblib
+from pathlib import Path
 from model import PopulationModel
 
 
 app = FastAPI()
 
-model = joblib.load("../models/population_model.joblib")
+ROOT = Path(__file__).parent.parent
+model = joblib.load(ROOT / "models/population_model.joblib")
 
 class PopulationResponse(BaseModel):
     district: str
@@ -63,7 +65,7 @@ def compare(district1: str, district2: str, year: int):
 
     return {
         "year": year,
-        "district": {
+        "districts": {
             district1: {
                 "predicted_population": int(prediction1),
                 "range": {
