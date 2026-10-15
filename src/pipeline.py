@@ -4,6 +4,7 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np 
 import pandas as pd 
+import os
 from rasterstats import zonal_stats
 from sklearn.linear_model import LinearRegression
 
@@ -15,6 +16,8 @@ YEARS = range(2000, 2021)
 def load_districts(names):
     """Load the districts boundaries and keep the ones we want."""
     shp_path = ROOT/ "data/raw/boundaries/rwa_adm2_2006_NISR_WGS1984_20181002.shp"
+    if not os.path.exists(shp_path):
+        raise FileNotFoundError(f"Shapefile not found at {shp_path}")
     districts = gpd.read_file(shp_path)
     return districts[districts["ADM2_EN"].isin(names)]
 
@@ -23,6 +26,8 @@ def build_population_table(districts):
     rows = []
     for year in YEARS:
         raster_path = ROOT / f"data/raw/worldpop/rwa_ppp_{year}.tif"
+        if not os.path.exists(raster_path):
+            raise FileNotFoundError(f"Population raster not found for year {year}")
         stats = zonal_stats(districts, str(raster_path), stats=["sum"])
         for district, stat in zip(districts["ADM2_EN"], stats):
             rows.append({"district" : district, "year" : year, "population" : round(stat["sum"])})
@@ -55,6 +60,41 @@ def save_to_database(population_df, validation_df, db_path):
     with sqlite3.connect(db_path) as conn:
         population_df.to_sql("population", conn, if_exists="replace", index=False)
         validation_df.to_sql("validation", conn, if_exists="replace", index=False)
+
+def fit_log_linear_model(data):
+    """Fit a log-linear model to the given data."""
+    model = LinearRegression().fit(data[["year"]], np.log(data["population"]))
+    return model
+
+def predict_population(model,year):
+    """Predict the population for the given year using the fitted model."""
+    return np.exp(model.predict(pd.DataFrame({"year": [year]})))[0]
+
+
+def validate_against_census(df):
+    """
+       Train a log-linear model on all years of data, predict the 2022 population, 
+    and compare to the 2022 census data.
+
+    The log-linear model is used because population growth is often exponential.
+    By taking the log of the population data, we can fit a linear model to the 
+    log-transformed data, which is equivalent to fitting an exponential model 
+    to the original data.
+
+    Returns a DataFrame with the predicted 2022 population, actual 2022 census
+    population, and percent error for each district."""
+    census_2022 = {"Gasabo": 879505, "Musanze": 476522}
+
+    rows = []
+    for name in DISTRICTS:
+        d = df[df["district"] == name]
+        model = fit_log_linear_model(d)
+        pred = predict_population(model, 2022)
+        actual = census_2022[name]
+        rows.append({"district": name, "predicted_2022": round(pred), "census": actual,
+                     "error_%": round((pred-actual) / actual * 100, 2)})
+
+    return pd.DataFrame(rows)
 
 def main():
     districts = load_districts(DISTRICTS)
