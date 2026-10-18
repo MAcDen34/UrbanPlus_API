@@ -10,7 +10,11 @@ from sklearn.linear_model import LinearRegression
 
 
 ROOT = Path(__file__).parent.parent
-DISTRICTS = ["Gasabo", "Musanze"]
+CENSUS_2022 = {
+    "Gasabo": 879505,
+    "Musanze": 476522,
+}
+DISTRICTS = list(CENSUS_2022)
 YEARS = range(2000, 2021)
 
 def load_districts(names):
@@ -34,18 +38,26 @@ def build_population_table(districts):
     return pd.DataFrame(rows)
 
 def validate_against_census(df):
-    """Train log-linear on all years, predict 2022, and compare to the census."""
-    census_2022 = {"Gasabo": 879505, "Musanze": 476522}
+    """
+       Train a log-linear model on all years of data, predict the 2022 population, 
+    and compare to the 2022 census data.
+
+    The log-linear model is used because population growth is often exponential.
+    By taking the log of the population data, we can fit a linear model to the 
+    log-transformed data, which is equivalent to fitting an exponential model 
+    to the original data.
+
+    Returns a DataFrame with the predicted 2022 population, actual 2022 census
+    population, and percent error for each district."""
 
     rows = []
     for name in DISTRICTS:
         d = df[df["district"] == name]
-        model = LinearRegression().fit(d[["year"]], np.log(d["population"]))
-
-        pred = np.exp(model.predict(pd.DataFrame({"year": [2022]})))[0]
-        actual = census_2022[name]
-
-        rows.append({"district": name, "predicted_2022" : round(pred), "census" : actual, "error_%" : round((pred-actual)/actual * 100, 2)})
+        model = fit_log_linear_model(d)
+        pred = predict_population(model, 2022)
+        actual = CENSUS_2022[name]
+        rows.append({"district": name, "predicted_2022": round(pred), "census": actual,
+                     "error_%": round((pred-actual) / actual * 100, 2)})
 
     return pd.DataFrame(rows)
 
@@ -69,32 +81,6 @@ def fit_log_linear_model(data):
 def predict_population(model,year):
     """Predict the population for the given year using the fitted model."""
     return np.exp(model.predict(pd.DataFrame({"year": [year]})))[0]
-
-
-def validate_against_census(df):
-    """
-       Train a log-linear model on all years of data, predict the 2022 population, 
-    and compare to the 2022 census data.
-
-    The log-linear model is used because population growth is often exponential.
-    By taking the log of the population data, we can fit a linear model to the 
-    log-transformed data, which is equivalent to fitting an exponential model 
-    to the original data.
-
-    Returns a DataFrame with the predicted 2022 population, actual 2022 census
-    population, and percent error for each district."""
-    census_2022 = {"Gasabo": 879505, "Musanze": 476522}
-
-    rows = []
-    for name in DISTRICTS:
-        d = df[df["district"] == name]
-        model = fit_log_linear_model(d)
-        pred = predict_population(model, 2022)
-        actual = census_2022[name]
-        rows.append({"district": name, "predicted_2022": round(pred), "census": actual,
-                     "error_%": round((pred-actual) / actual * 100, 2)})
-
-    return pd.DataFrame(rows)
 
 def main():
     districts = load_districts(DISTRICTS)
