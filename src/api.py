@@ -1,10 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi import Response
+from fastapi.responses import FileResponse
 from pipeline import load_districts, DISTRICTS
-import joblib
 from pathlib import Path
 from model import PopulationModel
+import joblib
 import pandas as pd 
 
 app = FastAPI()
@@ -25,6 +26,10 @@ class PopulationResponse(BaseModel):
     range: dict
     model: dict
     note: str
+
+@app.get("/dashboard")
+def dashboard():
+    return FileResponse(ROOT / "src/static/dashboard.html")
 
 @app.get("/geojson")
 def geojson():
