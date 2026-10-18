@@ -81,3 +81,22 @@ def test_compare_returns_both_districts_and_ratio():
 def test_compare_unknown_district_returns_404():
     r = client.get("/compare?district1=Gasabo&district2=Atlantis&year=2020")
     assert r.status_code == 404
+
+def test_error_widens_for_distant_year():
+    near = client.get("/predict/Gasabo?year=2021").json()["estimated_error_pct"]
+    far = client.get("/predict/Gasabo?year=2035").json()["estimated_error_pct"]
+    assert far > near
+
+def test_history_returns_full_series():
+    r = client.get("/history/Gasabo")
+    assert r.status_code == 200
+
+    obs = r.json()["observations"]
+    assert len(obs) ==21
+    assert obs[0]["year"] == 2000
+    assert obs[-1]["year"] == 2020
+    assert obs[0]["population"] < obs[-1]["population"]
+
+def test_history_unknown_district_returns_404():
+    assert client.get("/history/Atlantis").status_code == 404
+

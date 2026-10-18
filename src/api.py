@@ -3,13 +3,13 @@ from pydantic import BaseModel
 import joblib
 from pathlib import Path
 from model import PopulationModel
-
+import pandas as pd 
 
 app = FastAPI()
 
 ROOT = Path(__file__).parent.parent
 model = joblib.load(ROOT / "models/population_model.joblib")
-
+HISTORY = pd.read_csv(ROOT / "data/processed/population.csv")
 class PopulationResponse(BaseModel):
     district: str
     year: int
@@ -33,11 +33,13 @@ def predict(district: str, year: int):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    error_pct = model.error_pct_for(year)
+
     return PopulationResponse(
         district=district,
         year=year,
         predicted_population=int(prediction),
-        estimated_error_pct=model.metadata["test_error_pct"],
+        estimated_error_pct=error_pct,
         range={
             "low": int(prediction * (1 - model.metadata["test_error_pct"] / 100)),
             "high": int(prediction * (1 + model.metadata["test_error_pct"] / 100))
@@ -61,7 +63,7 @@ def compare(district1: str, district2: str, year: int):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    error_pct = model.metadata["test_error_pct"]
+    error_pct = model.error_pct_for(year)
 
     return {
         "year": year,
@@ -86,6 +88,23 @@ def compare(district1: str, district2: str, year: int):
         "estimated_error_pct": error_pct,
         "note": "Indicative estimate; error widens over time",
     }
+
+@app.get("/history/{district}")
+def history(district: str):
+    rows = HISTORY[HISTORY["district"] == district]
+
+    if rows.empty:
+        raise HTTPException(status_code=404, detail=f"District '{district}' not found")
+
+    return {
+        "district": district,
+        "source": "WorldPop gridded population estimate",
+        "observations": [
+            {"year": int(r.year), "population": int(r.population)}
+            for r in rows.sort_values("year").itertuples()
+        ],
+    }
+
 
 @app.get("/health")
 def health():

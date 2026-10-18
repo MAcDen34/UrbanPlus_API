@@ -22,6 +22,7 @@ class PopulationModel:
             "model_type": "log-linear trend (per district)",
             "train_years": (int(df["year"].min()), int(df["year"].max())),
             "validated_against": "2022 census",
+            "drift_pct_per_year": 1.1,
             "districts": sorted(self.models.keys()),
         })
 
@@ -39,6 +40,22 @@ class PopulationModel:
         return float(np.exp(
             self.models[district].predict(pd.DataFrame({"year": [year]}))
         )[0])
+
+    def error_pct_for(self, year):
+        """
+        Error widens the further a prediction extrapolates past the training data.
+
+        Baseline is the 2022 census check (~6.6%), which is itself 2 years past
+        the 2020 training cutoff. Each additional year beyond 2020 adds roughly
+        1.1 points, measured from the 2016-2020 holdout drift on Gasabo.
+        """
+
+        base = self.metadata["test_error_pct"]
+        drift_per_year = self.metadata["drift_pct_per_year"]
+        _, last_train_year = self.metadata["train_years"]
+
+        years_out = max(0, year - last_train_year)
+        return round(base + drift_per_year * years_out, 2)
 
 def get_test_error_pct(validation_path):
     df = pd.read_csv(validation_path)
