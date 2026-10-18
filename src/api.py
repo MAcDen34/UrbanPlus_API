@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from fastapi import Response
+from pipeline import load_districts, DISTRICTS
 import joblib
 from pathlib import Path
 from model import PopulationModel
@@ -10,6 +12,11 @@ app = FastAPI()
 ROOT = Path(__file__).parent.parent
 model = joblib.load(ROOT / "models/population_model.joblib")
 HISTORY = pd.read_csv(ROOT / "data/processed/population.csv")
+
+_gdf = load_districts(DISTRICTS).to_crs(epsg=4326)
+_gdf["geometry"] = _gdf.geometry.simplify(0.001)
+GEOJSON = _gdf[["ADM2_EN", "geometry"]].to_json()
+
 class PopulationResponse(BaseModel):
     district: str
     year: int
@@ -19,6 +26,9 @@ class PopulationResponse(BaseModel):
     model: dict
     note: str
 
+@app.get("/geojson")
+def geojson():
+    return Response(content=GEOJSON, media_type="application/json")
 
 @app.get("/districts")
 def get_districts():
@@ -41,14 +51,14 @@ def predict(district: str, year: int):
         predicted_population=int(prediction),
         estimated_error_pct=error_pct,
         range={
-            "low": int(prediction * (1 - model.metadata["test_error_pct"] / 100)),
-            "high": int(prediction * (1 + model.metadata["test_error_pct"] / 100))
+            "low": int(prediction * (1 - error_pct / 100)),
+            "high": int(prediction * (1 + error_pct / 100))
         },
         model={
             "type": model.metadata["model_type"],
             "trained_on": f"{model.metadata['train_years'][0]}-{model.metadata['train_years'][1]}",
             "validated_against": model.metadata["validated_against"],
-            "test_error_pct": model.metadata["test_error_pct"]
+            "baseline_error_pct": model.metadata["test_error_pct"]
         },
         note="Indicative estimate; error widens over time"
     )

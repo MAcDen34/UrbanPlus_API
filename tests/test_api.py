@@ -100,3 +100,10 @@ def test_history_returns_full_series():
 def test_history_unknown_district_returns_404():
     assert client.get("/history/Atlantis").status_code == 404
 
+def test_range_widens_with_error():
+    near = client.get("/predict/Gasabo?year=2021").json()
+    far = client.get("/predict/Gasabo?year=2035").json()
+
+    near_width = near["range"]["high"] - near["range"]["low"]
+    far_width = far["range"]["high"] - far["range"]["low"]
+    assert far_width > near_width * 1.5
