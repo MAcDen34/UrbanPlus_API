@@ -11,8 +11,23 @@ from sklearn.linear_model import LinearRegression
 
 ROOT = Path(__file__).parent.parent
 CENSUS_2022 = {
-    "Gasabo": 879505,
-    "Musanze": 476522,
+    # Kigali City
+    "Gasabo": 879505, "Kicukiro": 491731, "Nyarugenge": 374319,
+    # Eastern
+    "Bugesera": 551103, "Gatsibo": 551164, "Kayonza": 457156,
+    "Kirehe": 460860, "Ngoma": 404048, "Nyagatare": 653861,
+    "Rwamagana": 484953,
+    # Northern
+    "Burera": 387729, "Gakenke": 365292, "Gicumbi": 448824,
+    "Musanze": 476522, "Rulindo": 360144,
+    # Western
+    "Karongi": 373869, "Ngororero": 367955, "Nyabihu": 319047,
+    "Nyamasheke": 434221, "Rubavu": 546683, "Rusizi": 485529,
+    "Rutsiro": 369180,
+    # Southern
+    "Gisagara": 397051, "Huye": 381900, "Kamonyi": 450849,
+    "Muhanga": 358433, "Nyamagabe": 371501, "Nyanza": 365718,
+    "Nyaruguru": 318126, "Ruhango": 359121,
 }
 DISTRICTS = list(CENSUS_2022)
 YEARS = range(2000, 2021)

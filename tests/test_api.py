@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,15 +14,6 @@ def test_health():
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json() == {"status": "OK"}
-
-
-def test_districts_lists_both():
-    r = client.get("/districts")
-    assert r.status_code == 200
-    districts = r.json()["districts"]
-    assert "Gasabo" in districts
-    assert "Musanze" in districts
-
 
 def test_predict_returns_expected_shape():
     r = client.get("/predict/Gasabo?year=2020")
@@ -107,3 +97,11 @@ def test_range_widens_with_error():
     near_width = near["range"]["high"] - near["range"]["low"]
     far_width = far["range"]["high"] - far["range"]["low"]
     assert far_width > near_width * 1.5
+
+def test_districts_lists_all_thirty():
+    r = client.get("/districts")
+    assert r.status_code == 200
+    districts = r.json()["districts"]
+    assert len(districts) == 30
+    assert "Gasabo" in districts
+    assert "Nyagatare" in districts
