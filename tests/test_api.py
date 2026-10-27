@@ -118,3 +118,10 @@ def test_reliability_covers_all_districts():
     assert len(body["districts"]) == 30
     bands = {d["band"] for d in body["districts"].values()}
     assert bands == {"reliable", "moderate", "weak"}
+
+def test_forecast_returns_all_districts_in_one_call():
+    body = client.get("/forecast?year=2030").json()
+    assert len(body["districts"]) == 30
+    row = body["districts"]["Nyagatare"]
+    assert row["predicted_population"] > row["baseline"]
+    assert row["reliability"]["band"] == "weak"

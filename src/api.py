@@ -5,14 +5,18 @@ from fastapi.responses import FileResponse
 from pipeline import load_districts, DISTRICTS
 from pathlib import Path
 from model import PopulationModel, RELIABLE_PCT, MODERATE_PCT
+from fastapi.staticfiles import StaticFiles
 import joblib
 import pandas as pd 
 
 app = FastAPI()
 
 ROOT = Path(__file__).parent.parent
+app.mount("/static", StaticFiles(directory=ROOT / "src/static"), name="static")
+
 model = joblib.load(ROOT / "models/population_model.joblib")
 HISTORY = pd.read_csv(ROOT / "data/processed/population.csv")
+BASELINE = HISTORY[HISTORY["year"] == HISTORY["year"].max()].set_index("district")["population"].to_dict()
 
 _gdf = load_districts(DISTRICTS).to_crs(epsg=4326)
 _gdf["geometry"] = _gdf.geometry.simplify(0.001)
@@ -129,6 +133,26 @@ def reliability():
         "thresholds": {"reliable_within_pct": RELIABLE_PCT, "moderate_within_pct": MODERATE_PCT},
         "districts": model.metadata["reliability"],
     }
+
+@app.get("/forecast")
+def forecast(year: int):
+    """All districts for one year - one call instead of thirty."""
+    try:
+        error_pct = model.error_pct_for(year)
+        rows = {}
+        for d in model.metadata["districts"]:
+            p = model.predict(d, year)
+            rows[d] = {
+                "predicted_population": int(p),
+                "baseline": int(BASELINE[d]),
+                "range": {"low": int(p * (1 - error_pct /100)),
+                          "high": int(p * (1 + error_pct / 100))},
+                "reliability": model.reliability_for(d),
+            }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"year": year,"estimated_error_pct": error_pct, "districts": rows}
 
 
 @app.get("/health")
