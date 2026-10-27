@@ -4,7 +4,7 @@ from fastapi import Response
 from fastapi.responses import FileResponse
 from pipeline import load_districts, DISTRICTS
 from pathlib import Path
-from model import PopulationModel
+from model import PopulationModel, RELIABLE_PCT, MODERATE_PCT
 import joblib
 import pandas as pd 
 
@@ -24,6 +24,7 @@ class PopulationResponse(BaseModel):
     predicted_population: int
     estimated_error_pct: float
     range: dict
+    reliability: dict
     model: dict
     note: str
 
@@ -59,6 +60,7 @@ def predict(district: str, year: int):
             "low": int(prediction * (1 - error_pct / 100)),
             "high": int(prediction * (1 + error_pct / 100))
         },
+        reliability=model.reliability_for(district),
         model={
             "type": model.metadata["model_type"],
             "trained_on": f"{model.metadata['train_years'][0]}-{model.metadata['train_years'][1]}",
@@ -118,6 +120,14 @@ def history(district: str):
             {"year": int(r.year), "population": int(r.population)}
             for r in rows.sort_values("year").itertuples()
         ],
+    }
+
+@app.get("/reliability")
+def reliability():
+    return {
+        "basis": "WorldPop 2020 observation compared against 2022 census",
+        "thresholds": {"reliable_within_pct": RELIABLE_PCT, "moderate_within_pct": MODERATE_PCT},
+        "districts": model.metadata["reliability"],
     }
 
 

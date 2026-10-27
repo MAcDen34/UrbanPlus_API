@@ -105,3 +105,16 @@ def test_districts_lists_all_thirty():
     assert len(districts) == 30
     assert "Gasabo" in districts
     assert "Nyagatare" in districts
+
+def test_predict_carries_directional_reliability():
+    body = client.get("/predict/Nyagatare?year=2030").json()
+    assert body["reliability"]["band"] == "weak"
+    assert body["reliability"]["likely_skew"] == "overstates"
+    assert "upper bound" in body["reliability"]["note"]
+
+
+def test_reliability_covers_all_districts():
+    body = client.get("/reliability").json()
+    assert len(body["districts"]) == 30
+    bands = {d["band"] for d in body["districts"].values()}
+    assert bands == {"reliable", "moderate", "weak"}
