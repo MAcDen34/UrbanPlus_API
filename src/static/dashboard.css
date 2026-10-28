@@ -148,7 +148,16 @@ input[type=range] {
     border-color: var(--ink);
 }
 
-.themebtn:hover {
+/* The export link sits in the same row but is not a sort option, so it
+   keeps its own border and a gap to separate it from the group. */
+.sortbtns #export {
+    margin-left: 10px;
+    text-decoration: none;
+    border-left: 1px solid var(--rule);
+}
+
+.themebtn:hover,
+.sortbtns #export:hover {
     background: var(--hover);
 }
 

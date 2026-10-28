@@ -331,7 +331,9 @@ async function drawList() {
 
 
 async function refresh() {
-        document.getElementById("export").href = "/export?year=" + state.year;
+    document.getElementById("export").href = "/export?year=" + state.year;
+
+
     try {
         await drawList();
         await drawChart();
