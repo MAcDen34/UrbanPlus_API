@@ -125,3 +125,20 @@ def test_forecast_returns_all_districts_in_one_call():
     row = body["districts"]["Nyagatare"]
     assert row["predicted_population"] > row["baseline"]
     assert row["reliability"]["band"] == "weak"
+
+def test_export_returns_csv_with_caveats():
+    r = client.get("/export?year=2030")
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert "urbanplus_forecast_2030.csv" in r.headers["content-disposition"]
+
+    lines = r.text.strip().splitlines()
+    assert len(lines) == 31              # header + 30 districts
+    assert "caveat" in lines[0]
+    assert any("upper bound" in line for line in lines)
+
+
+def test_history_reads_from_database():
+    r = client.get("/history/Nyagatare")
+    assert r.status_code == 200
+    assert len(r.json()["observations"]) == 21

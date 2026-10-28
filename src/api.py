@@ -7,16 +7,29 @@ from pathlib import Path
 from model import PopulationModel, RELIABLE_PCT, MODERATE_PCT
 from fastapi.staticfiles import StaticFiles
 import joblib
-import pandas as pd 
+import sqlite3
+import csv
+import io
 
 app = FastAPI()
 
 ROOT = Path(__file__).parent.parent
 app.mount("/static", StaticFiles(directory=ROOT / "src/static"), name="static")
+DB_PATH = ROOT / "data/processed/database.db"
+
+def query(sql, params=()):
+    """Read from the store the pipeline writes, and Rows back to the dicts."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        return [dict(r) for r in conn.execute(sql, params)]
+
+BASELINE = {
+    r["district"]: r["population"]
+    for r in query("SELECT district, population FROM population "
+                   "WHERE year = (SELECT MAX(year) FROM population)")
+}
 
 model = joblib.load(ROOT / "models/population_model.joblib")
-HISTORY = pd.read_csv(ROOT / "data/processed/population.csv")
-BASELINE = HISTORY[HISTORY["year"] == HISTORY["year"].max()].set_index("district")["population"].to_dict()
 
 _gdf = load_districts(DISTRICTS).to_crs(epsg=4326)
 _gdf["geometry"] = _gdf.geometry.simplify(0.001)
@@ -112,20 +125,17 @@ def compare(district1: str, district2: str, year: int):
 
 @app.get("/history/{district}")
 def history(district: str):
-    rows = HISTORY[HISTORY["district"] == district]
+    rows = query("SELECT year, population FROM population "
+                 "WHERE district = ? ORDER BY year ",(district,))
 
-    if rows.empty:
-        raise HTTPException(status_code=404, detail=f"District '{district}' not found")
+    if not rows:
+        raise HTTPException(status_code =404 , detail=f"District '{district}' not found ")
 
     return {
         "district": district,
         "source": "WorldPop gridded population estimate",
-        "observations": [
-            {"year": int(r.year), "population": int(r.population)}
-            for r in rows.sort_values("year").itertuples()
-        ],
+        "observations": rows,
     }
-
 @app.get("/reliability")
 def reliability():
     return {
@@ -153,6 +163,38 @@ def forecast(year: int):
         raise HTTPException(status_code=400, detail=str(e))
 
     return {"year": year,"estimated_error_pct": error_pct, "districts": rows}
+
+
+@app.get("/export")
+def export(year: int):
+    """Forecasts for all districts as CSV, for use outside the dashboard."""
+    try:
+        error_pct = model.error_pct_for(year)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        "district", "year", "predicted_population", "baseline_2020",
+        "growth_multiple", "range_low", "range_high",
+        "estimated_error_pct", "data_quality", "data_error_pct", "caveat",
+    ])
+
+    for d in model.metadata["districts"]:
+        p = model.predict(d, year)
+        r = model.reliability_for(d)
+        writer.writerow([
+            d, year, int(p), BASELINE[d], round(p / BASELINE[d], 3),
+            int(p * (1 - error_pct / 100)), int(p * (1 + error_pct / 100)),
+            error_pct, r["band"], r["data_error_pct"], r["note"],
+        ])
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="urbanplus_forecast_{year}.csv"'},
+    )
 
 
 @app.get("/health")

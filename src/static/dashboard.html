@@ -38,6 +38,11 @@
         <button type="button" value="reliability" aria-pressed="false">Reliability</button>
       </div>
     </div>
+
+    <div class="ctl">
+      <span>Theme</span>
+      <button type="button" class="themebtn" id="theme">Dark</button>
+    </div>
   </div>
 
   <div id="error" class="err" hidden></div>
@@ -82,6 +87,13 @@
   </section>
 
 </div>
+
+      <div class="sortbtns" id="sort">
+        <button type="button" value="growth" aria-pressed="true">Fastest growing</button>
+        <button type="button" value="size" aria-pressed="false">Largest</button>
+        <button type="button" value="name" aria-pressed="false">A–Z</button>
+        <a class="themebtn" id="export" href="/export?year=2030" download>Download CSV</a>
+      </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>

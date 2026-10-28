@@ -1,8 +1,14 @@
 const BAND_COLOUR = {
-    reliable: "#2d7d55",
-    moderate: "#b5761f",
-    weak: "#a3453b"
+    light: { reliable: "#2d7d55", moderate: "#b5761f", weak: "#a3453b" },
+    dark: { reliable: "#5cb98a", moderate: "#e0a04a", weak: "#d8706a" }
 };
+
+const GROWTH_HUE = { light: "#0f6e6e", dark: "#4ab3b3" };
+const CHART_INK = { light: "#5a6b7a", dark: "#9aabb8" };
+const CHART_GRID = { light: "#e6ecf0", dark: "#32414d" };
+const TOOLTIP_BG = { light: "#16202a", dark: "#0b1116" };
+const MAP_EDGE = { light: "#8da0ad", dark: "#4e6273" };
+const MAP_BLANK = { light: "#eef2f4", dark: "#273440" };
 
 const state = {
     year: 2030,
@@ -19,6 +25,18 @@ let map = null;
 let mapLayer = null;
 let geojson = null;
 
+
+function currentTheme() {
+    const override = document.documentElement.dataset.theme;
+    if (override) {
+        return override;
+    }
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function bandColour(band) {
+    return BAND_COLOUR[currentTheme()][band];
+}
 
 async function getJson(path) {
     const response = await fetch(path);
@@ -71,13 +89,12 @@ function buildChart() {
             scales: {
                 x: {
                     grid: { display: false },
-                    ticks: { maxTicksLimit: 9, color: "#5a6b7a" }
+                    ticks: { maxTicksLimit: 9 }
                 },
                 y: {
-                    grid: { color: "#e6ecf0" },
+                    grid: {},
                     border: { display: false },
                     ticks: {
-                        color: "#5a6b7a",
                         callback: function (value) {
                             return (value / 1000).toFixed(0) + "k";
                         }
@@ -87,7 +104,6 @@ function buildChart() {
             plugins: {
                 legend: { display: false },
                 tooltip: {
-                    backgroundColor: "#16202a",
                     padding: 10,
                     displayColors: false,
                     callbacks: {
@@ -102,6 +118,19 @@ function buildChart() {
             }
         }
     });
+
+    applyChartTheme();
+}
+
+// Chart.js takes colours as values, so they do not follow the CSS variables
+// and have to be reapplied whenever the theme changes.
+function applyChartTheme() {
+    const theme = currentTheme();
+
+    chart.options.scales.x.ticks.color = CHART_INK[theme];
+    chart.options.scales.y.ticks.color = CHART_INK[theme];
+    chart.options.scales.y.grid.color = CHART_GRID[theme];
+    chart.options.plugins.tooltip.backgroundColor = TOOLTIP_BG[theme];
 }
 
 async function drawChart() {
@@ -135,12 +164,12 @@ async function drawChart() {
     // The line takes the reliability colour so a weak forecast reads as a
     // warning before anyone looks at the caveat below it.
     const band = forecast[endYear].reliability.band;
-    const lineColour = BAND_COLOUR[band];
+    const lineColour = bandColour(band);
 
     chart.data.labels = labels;
     chart.data.datasets = [
         { label: "Lower bound", data: low, borderWidth: 0, pointRadius: 0, fill: false },
-        { label: "Upper bound", data: high, borderWidth: 0, pointRadius: 0, backgroundColor: lineColour + "28", fill: "-1" },
+        { label: "Upper bound", data: high, borderWidth: 0, pointRadius: 0, backgroundColor: lineColour + "33", fill: "-1" },
         { label: "Observed", data: observed, borderColor: lineColour, borderWidth: 2, pointRadius: 0, tension: 0.25, fill: false },
         { label: "Projected", data: central, borderColor: lineColour, borderWidth: 2, borderDash: [5, 4], pointRadius: 0, tension: 0.25, fill: false }
     ];
@@ -163,13 +192,20 @@ function shade(hex, intensity) {
     const red = parseInt(hex.slice(1, 3), 16);
     const green = parseInt(hex.slice(3, 5), 16);
     const blue = parseInt(hex.slice(5, 7), 16);
-    const mix = value => Math.round(255 + (value - 255) * (0.12 + 0.88 * intensity));
+    const theme = currentTheme();
+
+    // Light mode fades toward white, dark mode toward the panel colour,
+    // so a low-growth district stays visible either way.
+    const base = theme === "dark" ? 26 : 255;
+    const mix = value => Math.round(base + (value - base) * (0.12 + 0.88 * intensity));
+
     return "rgb(" + mix(red) + "," + mix(green) + "," + mix(blue) + ")";
 }
 
 async function drawMap() {
     const pack = await getForecast(state.year);
     const rows = pack.districts;
+    const theme = currentTheme();
 
     const factors = Object.values(rows).map(growthOf);
     const lowest = Math.min(...factors);
@@ -187,22 +223,22 @@ async function drawMap() {
         const row = rows[district];
 
         if (!row) {
-            return { color: "#8da0ad", weight: 1, fillColor: "#eef2f4", fillOpacity: 1 };
+            return { color: MAP_EDGE[theme], weight: 1, fillColor: MAP_BLANK[theme], fillOpacity: 1 };
         }
 
         let fillColor;
         if (state.mode === "growth") {
-            fillColor = shade("#0f6e6e", normalise(growthOf(row)));
+            fillColor = shade(GROWTH_HUE[theme], normalise(growthOf(row)));
         } else {
-            fillColor = BAND_COLOUR[row.reliability.band];
+            fillColor = bandColour(row.reliability.band);
         }
 
         const isSelected = district === state.selected;
         return {
-            color: isSelected ? "#16202a" : "#8da0ad",
+            color: isSelected ? (theme === "dark" ? "#e8eef2" : "#16202a") : MAP_EDGE[theme],
             weight: isSelected ? 2.5 : 1,
             fillColor: fillColor,
-            fillOpacity: state.mode === "growth" ? 1 : 0.75
+            fillOpacity: state.mode === "growth" ? 1 : 0.8
         };
     }
 
@@ -240,21 +276,22 @@ function drawLegend() {
     const title = document.getElementById("map-title");
     const note = document.getElementById("map-note");
     const legend = document.getElementById("legend");
+    const hue = GROWTH_HUE[currentTheme()];
 
     if (state.mode === "growth") {
         title.textContent = "Projected growth since 2020";
         note.textContent = "Darker shading means faster projected growth against the district's 2020 figure.";
         legend.innerHTML =
             "<span>Slower" +
-            "<i style='background:" + shade("#0f6e6e", 0.12) + "'></i>" +
-            "<i style='background:" + shade("#0f6e6e", 0.5) + "'></i>" +
-            "<i style='background:" + shade("#0f6e6e", 1) + "'></i>" +
+            "<i style='background:" + shade(hue, 0.12) + "'></i>" +
+            "<i style='background:" + shade(hue, 0.5) + "'></i>" +
+            "<i style='background:" + shade(hue, 1) + "'></i>" +
             "Faster</span>";
     } else {
         title.textContent = "How far the data can be trusted";
         note.textContent = "Shading shows how closely WorldPop's 2020 estimate matches the 2022 census in each district.";
         legend.innerHTML = ["reliable", "moderate", "weak"].map(function (band) {
-            return "<span><i style='background:" + BAND_COLOUR[band] + "'></i>" + band + "</span>";
+            return "<span><i style='background:" + bandColour(band) + "'></i>" + band + "</span>";
         }).join("");
     }
 }
@@ -294,6 +331,7 @@ async function drawList() {
 
 
 async function refresh() {
+        document.getElementById("export").href = "/export?year=" + state.year;
     try {
         await drawList();
         await drawChart();
@@ -317,6 +355,32 @@ function wireToggle(containerId, stateKey, onChange) {
     });
 }
 
+function wireTheme() {
+    const button = document.getElementById("theme");
+
+    function label() {
+        button.textContent = currentTheme() === "dark" ? "Light" : "Dark";
+    }
+
+    button.onclick = function () {
+        document.documentElement.dataset.theme = currentTheme() === "dark" ? "light" : "dark";
+        label();
+        applyChartTheme();
+        refresh();
+    };
+
+    // Follow the system until the user overrides it.
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+        if (!document.documentElement.dataset.theme) {
+            label();
+            applyChartTheme();
+            refresh();
+        }
+    });
+
+    label();
+}
+
 async function init() {
     try {
         const districts = (await getJson("/districts")).districts;
@@ -328,6 +392,7 @@ async function init() {
         L.control.zoom({ position: "topright" }).addTo(map);
 
         buildChart();
+        wireTheme();
 
         const slider = document.getElementById("year");
         slider.oninput = function () {
