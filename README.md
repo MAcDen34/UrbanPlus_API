@@ -150,7 +150,7 @@ pytest tests/ -v
 
 **A possible circularity.** Gasabo's 2020 WorldPop figure (883,424) sits within half a percent of the 2022 census (879,505). If the raster series already incorporates census-adjusted estimates, error measured against that census is partly circular. This needs checking before the accuracy figures are quoted as fully independent.
 
-**Spatial generalisation is untested.** The architecture fits one model per district using only that district's own history, so there is no transferable rule to validate against a held-out district. Testing it would require restructuring the model, not just changing the train/test split.
+**The correction helps on average but hurts ten districts.** It reduces mean error from 9.81% to 7.07%, but it learned a one-directional rule from an overshooting majority and pushes already-underpredicting districts further down. It is not yet wired into the API for that reason.
 
 ---
 
@@ -169,6 +169,60 @@ models/ serialised model artifact
 tests/ pytest suite
 notebooks/ exploratory work, days 1–5
 
+
+## Spatial generalisation
+
+The architecture fits one model per district from that district's own history, so there is nothing to transfer and a plain spatial holdout is impossible. But the *correction* is learnable. Training districts show how far their naive forecast lands from the census, and if that gap is predictable from district characteristics, an unseen district can be corrected using only what other districts taught us.
+
+Six folds, 25 districts training and 5 held out each time, repeated across five random seeds:
+
+| Model | Mean abs error | Spread across seeds |
+| --- | --- | --- |
+| uncorrected baseline | 9.81% | — |
+| ridge | **7.07%** | ± 0.28 |
+| random forest | 8.91% | ± 0.43 |
+
+The improvement is 2.74 points against a seed spread of 0.28, so it is not an artefact of one lucky split.
+
+The correction transfers to districts the model never saw during their own fold:
+
+| District | Uncorrected | Corrected |
+| --- | --- | --- |
+| Nyagatare | +37.1% | −1.3% |
+| Kayonza | +24.9% | −1.1% |
+| Gatsibo | +25.1% | +6.7% |
+
+Standardised ridge coefficients show where the signal lives:
+
+log_pop_2020 +0.0080
+growth_total -0.0715
+deceleration +0.0105
+density +0.0448
+
+
+`growth_total` dominates by an order of magnitude. The deceleration term — built on the hypothesis that districts which boomed early and then slowed are the ones overshot — contributes almost nothing. The relationship is with total growth, not with its shape.
+
+**No census value enters the features.** All four are computed from WorldPop rasters and shapefile geometry. The census appears only as the target.
+
+### Where it backfires
+
+Twenty districts improved; ten got worse, and systematically so:
+
+| District | Uncorrected | Corrected |
+| --- | --- | --- |
+| Rwamagana | −7.9% | −17.8% |
+| Bugesera | −10.2% | −19.4% |
+| Kamonyi | −0.2% | −6.5% |
+
+These were already underpredicting. Because the model learned "high growth means reduce the forecast" from an overshooting majority, it applies a downward nudge to districts that needed the opposite. Mean error improves by rescuing large errors at the cost of damaging small ones.
+
+The correction captures magnitude but has no way to express direction. Fixing that needs a feature indicating which way WorldPop tends to err in a given district — and one available without the census, to avoid leaking the target.
+
+Reproduce with:
+
+```bash
+python src/spatial_holdout.py
+```
 
 ---
 
