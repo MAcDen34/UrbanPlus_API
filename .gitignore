@@ -16,3 +16,4 @@ __pycache__/
 *.db
 .vscode/
 data/raw/osm/
+cache/
