@@ -152,6 +152,31 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Deployment
+
+The API runs as a Docker container on a Hostinger VPS (KVM 2, Ubuntu). The live dashboard is at http://179.67.201.79/dashboard.
+
+The image only carries what the API needs at runtime: FastAPI, scikit-learn, pandas and the saved model. Geopandas and rasterio are left out on purpose. The district outlines are prebuilt into `data/processed/districts.geojson` by `src/build_geojson.py`, so the container never touches the raw shapefile and the image stays small. The model, the SQLite database, the corrections file and the outlines are copied in at build time, so a fresh clone of the repo is all the server needs.
+
+To run it locally:
+
+```bash
+docker build -t urbanplus .
+docker run --rm -p 8001:8000 urbanplus
+```
+
+On the server:
+
+```bash
+git clone https://github.com/MAcDen34/UrbanPlus_API.git
+cd UrbanPlus_API
+sudo docker compose up -d --build
+```
+
+To ship a change, `git pull` and run the last command again. The compose file restarts the container after a reboot.
+
+The VPS firewall accepts TCP on ports 22 (SSH), 80 (HTTP) and 443 (HTTPS) and drops everything else. There is no HTTPS yet: the app is served over plain HTTP on the server's IP address.
+
 ### Data
 
 Two sources go in `data/raw/`. Neither is committed to the repo.
