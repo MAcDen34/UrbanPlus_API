@@ -1,0 +1,5 @@
+model,mean_abs_err,mean_signed_err,within_10pct,worst_err,corr_growth_err
+log-linear (baseline),9.81,6.25,20,37.1,0.613
+recent-weighted,10.08,6.93,21,40.0,0.639
+recent-window 2010+,10.39,7.64,20,43.0,0.662
+log-quadratic,9.85,6.33,20,37.3,0.615

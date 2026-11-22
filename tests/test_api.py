@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,15 +14,6 @@ def test_health():
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json() == {"status": "OK"}
-
-
-def test_districts_lists_both():
-    r = client.get("/districts")
-    assert r.status_code == 200
-    districts = r.json()["districts"]
-    assert "Gasabo" in districts
-    assert "Musanze" in districts
-
 
 def test_predict_returns_expected_shape():
     r = client.get("/predict/Gasabo?year=2020")
@@ -100,3 +90,70 @@ def test_history_returns_full_series():
 def test_history_unknown_district_returns_404():
     assert client.get("/history/Atlantis").status_code == 404
 
+def test_range_widens_with_error():
+    near = client.get("/predict/Gasabo?year=2021").json()
+    far = client.get("/predict/Gasabo?year=2035").json()
+
+    near_width = near["range"]["high"] - near["range"]["low"]
+    far_width = far["range"]["high"] - far["range"]["low"]
+    assert far_width > near_width * 1.5
+
+def test_districts_lists_all_thirty():
+    r = client.get("/districts")
+    assert r.status_code == 200
+    districts = r.json()["districts"]
+    assert len(districts) == 30
+    assert "Gasabo" in districts
+    assert "Nyagatare" in districts
+
+def test_predict_carries_directional_reliability():
+    body = client.get("/predict/Nyagatare?year=2030").json()
+    assert body["reliability"]["band"] == "weak"
+    assert body["reliability"]["likely_skew"] == "overstates"
+    assert "upper bound" in body["reliability"]["note"]
+
+
+def test_reliability_covers_all_districts():
+    body = client.get("/reliability").json()
+    assert len(body["districts"]) == 30
+    bands = {d["band"] for d in body["districts"].values()}
+    assert bands == {"reliable", "moderate", "weak"}
+
+def test_forecast_returns_all_districts_in_one_call():
+    body = client.get("/forecast?year=2030").json()
+    assert len(body["districts"]) == 30
+    row = body["districts"]["Nyagatare"]
+    assert row["predicted_population"] > row["baseline"]
+    assert row["reliability"]["band"] == "weak"
+
+def test_export_returns_csv_with_caveats():
+    r = client.get("/export?year=2030")
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert "urbanplus_forecast_2030.csv" in r.headers["content-disposition"]
+
+    lines = r.text.strip().splitlines()
+    assert len(lines) == 31              # header + 30 districts
+    assert "caveat" in lines[0]
+    assert any("upper bound" in line for line in lines)
+
+
+def test_history_reads_from_database():
+    r = client.get("/history/Nyagatare")
+    assert r.status_code == 200
+    assert len(r.json()["observations"]) == 21
+
+def test_correction_only_after_training_year():
+    assert client.get("/predict/Gasabo?year=2020").json()["correction"] is None
+    assert client.get("/predict/Gasabo?year=2030").json()["correction"] is not None
+
+def test_correction_advice_follows_data_direction():
+    low = client.get("/predict/Bugesera?year=2030").json()["correction"]
+    high = client.get("/predict/Nyagatare?year=2030").json()["correction"]
+    assert low["advice"] == "use_with_caution"
+    assert high["advice"] == "recommended"
+
+def test_export_has_correction_columns():
+    header = client.get("/export?year=2030").text.splitlines()[0]
+    assert "corrected_population" in header
+    assert "correction_advice" in header
