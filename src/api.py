@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi import Response
 from fastapi.responses import FileResponse
-from pipeline import load_districts, DISTRICTS
 from pathlib import Path
 from model import PopulationModel, RELIABLE_PCT, MODERATE_PCT
 from fastapi.staticfiles import StaticFiles
@@ -29,11 +28,42 @@ BASELINE = {
                    "WHERE year = (SELECT MAX(year) FROM population)")
 }
 
+with open(ROOT / "data/processed/corrections.csv") as f:
+    CORRECTIONS = {
+        r["district"]: {k: float(v) for k, v in r.items() if k != "district"}
+        for r in csv.DictReader(f)
+    }
+
 model = joblib.load(ROOT / "models/population_model.joblib")
 
-_gdf = load_districts(DISTRICTS).to_crs(epsg=4326)
-_gdf["geometry"] = _gdf.geometry.simplify(0.001)
-GEOJSON = _gdf[["ADM2_EN", "geometry"]].to_json()
+GEOJSON = (ROOT / "data/processed/districts.geojson").read_text()
+
+def correction_for(district, year, naive):
+    """Corrected forecast to sit next to the naive one. Only past the training years."""
+    _, last_train_year = model.metadata["train_years"]
+    if year <= last_train_year:
+        return None
+
+    c = CORRECTIONS[district]
+    reads_low = model.metadata["reliability"][district]["data_error_pct"] < 0
+
+    if reads_low:
+        advice = "use_with_caution"
+        note = ("Satellite estimates read below the census here. In testing, the correction "
+                "tended to push forecasts the wrong way in districts like this, so treat "
+                "the plain forecast as the main figure.")
+    else:
+        advice = "recommended"
+        note = ("Satellite estimates read at or above the census here. In testing, the "
+                "correction improved forecasts in most districts like this.")
+
+    return {
+        "predicted_population": int(naive * c["multiplier"]),
+        "multiplier": round(c["multiplier"], 3),
+        "advice": advice,
+        "cv_change_pts": round(c["cv_change_pts"], 1),
+        "note": note + " The multiplier was calibrated at 2022 and applied to every year.",
+    }
 
 class PopulationResponse(BaseModel):
     district: str
@@ -44,6 +74,7 @@ class PopulationResponse(BaseModel):
     reliability: dict
     model: dict
     note: str
+    correction: dict | None = None
 
 @app.get("/dashboard")
 def dashboard():
@@ -78,6 +109,7 @@ def predict(district: str, year: int):
             "high": int(prediction * (1 + error_pct / 100))
         },
         reliability=model.reliability_for(district),
+        correction=correction_for(district, year, prediction),
         model={
             "type": model.metadata["model_type"],
             "trained_on": f"{model.metadata['train_years'][0]}-{model.metadata['train_years'][1]}",
@@ -158,6 +190,7 @@ def forecast(year: int):
                 "range": {"low": int(p * (1 - error_pct /100)),
                           "high": int(p * (1 + error_pct / 100))},
                 "reliability": model.reliability_for(d),
+                "correction": correction_for(d, year, p),
             }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -179,15 +212,18 @@ def export(year: int):
         "district", "year", "predicted_population", "baseline_2020",
         "growth_multiple", "range_low", "range_high",
         "estimated_error_pct", "data_quality", "data_error_pct", "caveat",
+        "corrected_population", "correction_advice",
     ])
 
     for d in model.metadata["districts"]:
         p = model.predict(d, year)
         r = model.reliability_for(d)
+        c = correction_for(d, year, p)
         writer.writerow([
             d, year, int(p), BASELINE[d], round(p / BASELINE[d], 3),
             int(p * (1 - error_pct / 100)), int(p * (1 + error_pct / 100)),
             error_pct, r["band"], r["data_error_pct"], r["note"],
+            c["predicted_population"] if c else "", c["advice"] if c else "",
         ])
 
     return Response(

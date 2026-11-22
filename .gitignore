@@ -17,3 +17,6 @@ __pycache__/
 .vscode/
 data/raw/osm/
 cache/
+data/raw/viirs/
+!data/processed/database.db
+data/processed/viirs_rwanda_*.tif
