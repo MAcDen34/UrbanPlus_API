@@ -154,18 +154,28 @@ pip install -r requirements.txt
 
 ## Deployment
 
-The API runs as a Docker container on a Hostinger VPS (KVM 2, Ubuntu). The live dashboard is at http://179.67.201.79/dashboard.
+The API and dashboard run in Docker on a small VPS and are live at **https://urbanplus-rw.tech** (dashboard at `/dashboard`, interactive API docs at `/docs`).
 
-The image only carries what the API needs at runtime: FastAPI, scikit-learn, pandas and the saved model. Geopandas and rasterio are left out on purpose. The district outlines are prebuilt into `data/processed/districts.geojson` by `src/build_geojson.py`, so the container never touches the raw shapefile and the image stays small. The model, the SQLite database, the corrections file and the outlines are copied in at build time, so a fresh clone of the repo is all the server needs.
+### How it fits together
 
-To run it locally:
+Two containers, defined in `docker-compose.yml`:
 
-```bash
-docker build -t urbanplus .
-docker run --rm -p 8001:8000 urbanplus
-```
+- **api** runs the FastAPI app with uvicorn. It is only reachable inside Docker's private network, never directly from the internet.
+- **caddy** is the public entry point. It listens on ports 80 and 443, forwards requests to the API, redirects plain HTTP to HTTPS and `www` to the bare domain, and gets and renews the TLS certificate on its own. The certificates live in a named volume so they survive rebuilds.
 
-On the server:
+The API image is built from `python:3.13-slim` and installs only what the service needs at runtime (`requirements-api.txt`, with every version pinned). The trained models are pickled, so the image has to use the same scikit-learn, numpy and pandas versions that trained them, and the pins keep it that way. Geopandas and GDAL are not in the image: the map is served from a prebuilt `districts.geojson`, which keeps the image small and the build fast.
+
+The image contains the code, the dashboard files, the fitted models and three generated data files: `database.db`, `corrections.csv` and `districts.geojson`. Raw data, notebooks and tests are left out through `.dockerignore`.
+
+### Server setup
+
+I run it on a Hostinger KVM 2 VPS (Ubuntu). To set up a server like it:
+
+1. **Firewall.** Default policy is drop. Only three ports are open: 22 (SSH), 80 (HTTP) and 443 (HTTPS). In Hostinger's firewall the source for each rule is "Any".
+2. **SSH.** Log in with a key.
+3. **Docker.** Install Docker Engine and the Compose plugin.
+4. **DNS.** Add an `A` record for the bare domain pointing at the server's IP. The `www` name is a `CNAME` to it. Caddy needs DNS to resolve before it can obtain a certificate.
+5. **Clone and start.**
 
 ```bash
 git clone https://github.com/MAcDen34/UrbanPlus_API.git
@@ -173,9 +183,38 @@ cd UrbanPlus_API
 sudo docker compose up -d --build
 ```
 
-To ship a change, `git pull` and run the last command again. The compose file restarts the container after a reboot.
+Both containers have `restart: unless-stopped`, so they come back by themselves after a reboot. I tested this by rebooting the server.
 
-The VPS firewall accepts TCP on ports 22 (SSH), 80 (HTTP) and 443 (HTTPS) and drops everything else. There is no HTTPS yet: the app is served over plain HTTP on the server's IP address.
+### Updating
+
+```bash
+cd ~/projects/UrbanPlus_API
+git pull
+sudo docker compose up -d --build
+```
+
+The rebuild is required even for a small dashboard change, because the static files are copied into the image. If I retrain the models or rerun the data scripts, the regenerated files (`models/`, `database.db`, `corrections.csv`) have to be committed before pulling, since the image is built from the repository.
+
+### Checking it is healthy
+
+```bash
+sudo docker compose ps
+sudo docker compose logs caddy --tail 30
+curl -s https://urbanplus-rw.tech/health
+```
+
+`/health` should return `{"status":"OK"}`. If a certificate can't be issued, the Caddy log says why, and the usual causes are DNS that has not propagated or a closed port 80 or 443.
+
+### Running it locally
+
+For development I skip Docker and run uvicorn directly from `src/`:
+
+```bash
+cd src
+uvicorn api:app --reload
+```
+
+The dashboard is then at http://127.0.0.1:8000/dashboard.
 
 ### Data
 
