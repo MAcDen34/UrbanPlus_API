@@ -55,9 +55,6 @@ def build_features(history):
 
     df = pd.DataFrame(rows)
 
-    roads = pd.read_csv(ROOT / "data/processed/road_density.csv")
-    df = df.merge(roads[["district", "road_density", "segment_density"]], on="district")
-
 
     # Work in log space so the correction is a multiplier, not an amount.
     df["correction"] = np.log(df["census_2022"] / df["naive_2022"])

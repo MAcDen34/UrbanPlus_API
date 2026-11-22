@@ -142,3 +142,18 @@ def test_history_reads_from_database():
     r = client.get("/history/Nyagatare")
     assert r.status_code == 200
     assert len(r.json()["observations"]) == 21
+
+def test_correction_only_after_training_year():
+    assert client.get("/predict/Gasabo?year=2020").json()["correction"] is None
+    assert client.get("/predict/Gasabo?year=2030").json()["correction"] is not None
+
+def test_correction_advice_follows_data_direction():
+    low = client.get("/predict/Bugesera?year=2030").json()["correction"]
+    high = client.get("/predict/Nyagatare?year=2030").json()["correction"]
+    assert low["advice"] == "use_with_caution"
+    assert high["advice"] == "recommended"
+
+def test_export_has_correction_columns():
+    header = client.get("/export?year=2030").text.splitlines()[0]
+    assert "corrected_population" in header
+    assert "correction_advice" in header
