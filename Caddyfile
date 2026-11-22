@@ -1,0 +1,8 @@
+www.urbanplus-rw.tech {
+    redir https://urbanplus-rw.tech{uri} permanent
+}
+
+urbanplus-rw.tech {
+    encode gzip
+    reverse_proxy api:8000
+}
