@@ -177,6 +177,7 @@ async function drawChart() {
 
     document.getElementById("chart-title").textContent = district + ": fitted history and projection";
     drawCaveat(forecast[endYear].reliability);
+    drawCorrection(forecast[endYear]);
 }
 
 function drawCaveat(reliability) {
@@ -185,6 +186,31 @@ function drawCaveat(reliability) {
     box.dataset.band = reliability.band;
     document.getElementById("caveat-band").textContent = reliability.band + " data";
     document.getElementById("caveat-note").textContent = reliability.note;
+}
+
+function drawCorrection(row) {
+    const box = document.getElementById("correction");
+    const correction = row.correction;
+
+    // 2020 and earlier are observations, so there is nothing to correct
+    if (!correction) {
+        box.hidden = true;
+        return;
+    }
+
+    const recommended = correction.advice === "recommended";
+    const advice = document.getElementById("correction-advice");
+
+    box.hidden = false;
+
+    document.getElementById("correction-title").textContent =
+        "Corrected: " + formatNumber(correction.predicted_population) +
+        " (plain forecast " + formatNumber(row.predicted_population) + ")";
+
+    advice.textContent = recommended ? "Recommended" : "Use with caution";
+    advice.dataset.advice = recommended ? "yes" : "no";
+
+    document.getElementById("correction-note").textContent = correction.note;
 }
 
 
@@ -364,11 +390,57 @@ function wireTheme() {
         button.textContent = currentTheme() === "dark" ? "Light" : "Dark";
     }
 
-    button.onclick = function () {
-        document.documentElement.dataset.theme = currentTheme() === "dark" ? "light" : "dark";
+    // Everything that has to change with the theme. It returns the promise
+    // from refresh() so the browser waits for the map and chart to redraw
+    // before it takes the "after" snapshot.
+    function applyTheme(next) {
+        document.documentElement.dataset.theme = next;
         label();
         applyChartTheme();
-        refresh();
+        return refresh();
+    }
+
+    button.onclick = function () {
+        const next = currentTheme() === "dark" ? "light" : "dark";
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        // Browsers without the API, or users who asked for less motion,
+        // get the plain instant switch.
+        if (!document.startViewTransition || reduceMotion) {
+            applyTheme(next);
+            return;
+        }
+
+        // The circle grows from the centre of the button.
+        const box = button.getBoundingClientRect();
+        const x = box.left + box.width / 2;
+        const y = box.top + box.height / 2;
+
+        // Distance to the farthest corner, so the circle ends up covering the whole page.
+        const radius = Math.hypot(
+            Math.max(x, window.innerWidth - x),
+            Math.max(y, window.innerHeight - y)
+        );
+
+        const transition = document.startViewTransition(function () {
+            return applyTheme(next);
+        });
+
+        transition.ready.then(function () {
+            document.documentElement.animate(
+                {
+                    clipPath: [
+                        "circle(0px at " + x + "px " + y + "px)",
+                        "circle(" + radius + "px at " + x + "px " + y + "px)"
+                    ]
+                },
+                {
+                    duration: 500,
+                    easing: "ease-in-out",
+                    pseudoElement: "::view-transition-new(root)"
+                }
+            );
+        });
     };
 
     // Follow the system until the user overrides it.

@@ -216,6 +216,29 @@ input[type=range] {
 .caveat[data-band=moderate] { border-color: var(--moderate); }
 .caveat[data-band=weak]     { border-color: var(--weak); }
 
+/* The correction box keeps one accent whatever the data quality, so it
+   never competes with the reliability caveat. The advice is carried by
+   the small tag instead of the border colour. */
+#correction {
+    border-color: var(--growth);
+}
+
+.advice {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 1px 9px;
+    margin-right: 6px;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    color: var(--ink-soft);
+}
+
+.advice[data-advice=yes] {
+    border-color: var(--reliable);
+    color: var(--reliable);
+}
+
 .caveat b {
     display: block;
     font-size: 12.5px;
@@ -342,6 +365,15 @@ input[type=range] {
 
 .leaflet-tooltip-left::before { border-left-color: var(--rule); }
 .leaflet-tooltip-right::before { border-right-color: var(--rule); }
+
+/* The browser overlays a snapshot of the old page and one of the new page.
+   Its default cross-fade is switched off so the circle in dashboard.js is
+   the only animation. */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+}
 
 @media (max-width: 980px) {
     .grid {
