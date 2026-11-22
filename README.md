@@ -83,6 +83,8 @@ I predict the log of `census / naive forecast` from four features: log populatio
 
 That's an improvement of 2.74 points against a seed spread of 0.28, so one lucky split isn't driving it.
 
+The per-district tables below come from a single split (seed 1). The API serves corrections built from out-of-fold predictions averaged over all five seeds, which score 6.91% overall with 19 districts improved and 11 worse. The pattern is the same either way.
+
 It works on districts the model never saw during their own fold:
 
 | District | Uncorrected | Corrected |
@@ -106,7 +108,7 @@ No census value goes into the features. All four come from WorldPop rasters and 
 
 ### Where it backfires
 
-Twenty districts improved and ten got worse, and the ten aren't random:
+In the seed-1 run, twenty districts improved and ten got worse, and the ten aren't random:
 
 | District | Uncorrected | Corrected |
 | --- | --- | --- |
@@ -116,15 +118,18 @@ Twenty districts improved and ten got worse, and the ten aren't random:
 
 All of these were already underpredicting. The model learned "high growth means bring the forecast down" from the majority of districts, which overshoot, so it pushes a downward correction onto districts that needed the opposite. The mean error improves because a few huge errors get rescued, while many small errors get a bit worse.
 
-So the correction knows how big the adjustment should be but not which direction. Fixing that needs a feature showing which way WorldPop tends to be wrong in a given district, and it has to be available without the census, otherwise the target leaks into the features. Rwamagana and Bugesera are also the two districts the input data understates (see the main finding), so I think this is the data's direction showing up and not a modelling mistake. `src/worse_districts.py` checks that across all ten.
+So the correction knows how big the adjustment should be but not which direction. Splitting the districts by which way WorldPop is wrong shows it clearly. In the 18 districts where WorldPop reads at or above the 2022 census, the correction improved 17 and averaged +7.2 points (pulled up by a few large wins such as Nyagatare). In the 12 where it reads below the census, it made 10 worse and averaged −3.5 points. The correction pushes forecasts down whichever way the input was wrong, so it hurts exactly where WorldPop already under-reads. Rwamagana and Bugesera, the two worst cases, sit furthest below the census among the ten that got worse (−13.9% and −14.7%), and together they account for about 44% of the accuracy lost across the ten in the seed-1 run.
 
-Because of this, the correction isn't wired into the API yet.
+That split uses the census to decide which group a district is in, so it explains the pattern but can't be used to switch the correction on or off. Scoring a rule built on it against the same census would be circular. A real fix would need a feature that shows which way WorldPop errs in a district and doesn't need the census.
+
+Because of this, the API doesn't swap the correction in. `/predict`, `/forecast` and `/export` return the plain forecast as the main figure with the corrected one beside it, and each district gets an `advice` field: `recommended` where WorldPop reads at or above the census, `use_with_caution` where it reads below. The corrections the API serves come from out-of-fold predictions averaged over the five seeds (`src/build_corrections.py`), so no district is corrected by a model that saw its own census figure.
 
 To reproduce:
 
 ```bash
 python src/spatial_holdout.py
 python src/worse_districts.py
+python src/build_corrections.py
 ```
 
 ---
@@ -134,7 +139,7 @@ python src/worse_districts.py
 I tried a few more things that didn't work, and I'm keeping them here so I don't repeat them.
 
 - **Other model forms.** Three alternatives to the log-linear fit (the table at the top). None of them beat it, because the error is in the data and not in the curve.
-- **Road density** (OpenStreetMap through Geofabrik and pyrosm, `src/road_features.py`). It made the spatial holdout worse. Road density is strongly collinear with population density, so it added noise and no new information.
+- **Road density** (OpenStreetMap through Geofabrik and pyrosm, `src/road_features.py`). Correlated 0.87 to 0.96 with population density, and adding it degraded the spatial holdout from 7.07% to 7.43%. It added noise instead of information.
 - **Nighttime lights** (VIIRS annual v21, masked, 2012 and 2020, `src/light_features.py`). Adding lights growth and the 2020 lights level gave 7.22% ± 0.53, against 7.07% ± 0.28 without them. That gap is inside the seed spread, so lights add nothing the four existing features don't already cover. Lights growth is also tangled up with the 2012 starting level, since a dark rural district "grows" a lot from almost nothing. The 2012 composite only covers April to December.
 
 ---
@@ -164,8 +169,10 @@ The two experiments that didn't help need extra downloads, also not committed:
 ### Build and run
 
 ```bash
-python src/pipeline.py      # zonal statistics -> CSV + SQLite (takes a few minutes)
-python src/train.py         # fit 30 models -> models/population_model.joblib
+python src/pipeline.py           # zonal statistics -> CSV + SQLite (takes a few minutes)
+python src/train.py              # fit 30 models -> models/population_model.joblib
+python src/build_corrections.py  # out-of-fold corrections -> data/processed/corrections.csv
+python src/build_geojson.py      # district outlines -> data/processed/districts.geojson
 cd src && uvicorn api:app --reload
 ```
 
@@ -186,17 +193,31 @@ The dashboard has a year slider from 2000 to 2040, a map you can switch between 
 | Endpoint | Returns |
 | --- | --- |
 | `GET /districts` | The 30 supported districts |
-| `GET /predict/{district}?year=` | Forecast with range, reliability and model metadata |
-| `GET /forecast?year=` | All 30 districts for one year, in one call |
+| `GET /predict/{district}?year=` | Forecast with range, reliability, model metadata and, after 2020, a corrected forecast with advice |
+| `GET /forecast?year=` | All 30 districts for one year in one call, corrections included |
 | `GET /compare?district1=&district2=&year=` | Two districts side by side, with difference and ratio |
 | `GET /history/{district}` | Observed population 2000 to 2020 |
-| `GET /geojson` | Simplified district polygons in WGS84 |
+| `GET /geojson` | Simplified district polygons in WGS84, read from a prebuilt file |
 | `GET /reliability` | Reliability band for every district |
-| `GET /export?year=` | All forecasts as CSV, caveats included |
+| `GET /export?year=` | All forecasts as CSV, with caveats and corrected figures |
 | `GET /dashboard` | The browser dashboard |
 | `GET /health` | Service status |
 
 The CSV export includes the caveat text next to the numbers. Someone working in a spreadsheet loses every visual warning the dashboard gives, so the warning has to travel with the data.
+
+For years after 2020, `/predict` carries a `correction` block next to the plain forecast:
+
+```json
+"correction": {
+  "predicted_population": 571751,
+  "multiplier": 0.896,
+  "advice": "use_with_caution",
+  "cv_change_pts": -9.3,
+  "note": "Satellite estimates read below the census here. In testing, the correction tended to push forecasts the wrong way in districts like this, so treat the plain forecast as the main figure. ..."
+}
+```
+
+`cv_change_pts` is how many points the correction moved this district's error in cross-validation (negative means it made things worse). For 2020 and earlier the block is `null`, since those years are observations.
 
 ---
 
@@ -206,7 +227,7 @@ The CSV export includes the caveat text next to the numbers. Someone working in 
 2. **One log-linear model per district.** A straight line through `log(population)`, which assumes a constant proportional growth rate.
 3. **Validation** against the 2022 census, reported per district and not only as one aggregate number.
 4. **Uncertainty** widens by 1.1 percentage points per year after 2020, based on the drift I measured on a 2016 to 2020 holdout.
-5. **Correction** (experimental, not in the API): a ridge model predicts how far a district's naive forecast will miss the census, trained on the other districts.
+5. **Correction.** A ridge model predicts how far a district's naive forecast will miss the census, trained on the other districts. It is served beside the plain forecast with an advice flag, not in place of it.
 
 The processed records are stored in SQLite, and the API reads from that.
 
@@ -234,7 +255,7 @@ pytest tests/ -v
 
 **A possible circularity.** Gasabo's 2020 WorldPop figure (883,424) is within half a percent of the 2022 census (879,505). If the raster series already includes census-adjusted estimates, then measuring error against that census is partly circular. I need to check this before I quote the accuracy figures as fully independent.
 
-**The correction helps on average but hurts ten districts.** It brings mean error down from 9.81% to 7.07%, but it learned a one-direction rule from a majority of overshooting districts and pushes already-underpredicting districts further down. That's why it isn't in the API yet.
+**The correction helps on average but hurts about a third of the districts.** It brings mean error down from 9.81% to about 7%, but it learned a one-direction rule from a majority of overshooting districts and pushes already-underpredicting districts further down (10 districts in the seed-1 run, 11 in the seed average). The API serves it beside the plain forecast with an advice flag instead of replacing it.
 
 **Spatial generalisation is only tested inside Rwanda.** The correction is cross-validated on the same 30 districts it was built from, against one census. It says little about other countries or about a future census. Thirty rows is also small, and the seed spread (± 0.28) is the honest measure of how much the result moves with the split.
 
@@ -249,6 +270,8 @@ src/
   pipeline.py              zonal statistics, validation, persistence
   model.py                 PopulationModel, reliability banding
   train.py                 fit and save the models
+  build_corrections.py     out-of-fold corrections the API serves
+  build_geojson.py         prebuilt district outlines for the API
   api.py                   FastAPI service
   compare_model_forms.py   four model forms against the census
   analyse_error_source.py  error decomposition
@@ -257,10 +280,13 @@ src/
   road_features.py         OSM road density (experiment, no gain)
   light_features.py        VIIRS lights growth (experiment, no gain)
   static/                  dashboard HTML, CSS, JS
-data/processed/            CSV and SQLite outputs
+data/processed/            CSV, SQLite and GeoJSON outputs
 models/                    saved model artifact
 tests/                     pytest suite
 notebooks/                 early exploratory work
+Dockerfile                 runtime image for the API
+docker-compose.yml         one-service compose file
+requirements-api.txt       runtime-only dependencies
 ```
 
 ---
