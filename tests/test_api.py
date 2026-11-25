@@ -15,6 +15,10 @@ def test_health():
     assert r.status_code == 200
     assert r.json() == {"status": "OK"}
 
+def test_health_accepts_head():
+    r = client.head("/health")
+    assert r.status_code == 200
+
 def test_predict_returns_expected_shape():
     r = client.get("/predict/Gasabo?year=2020")
     assert r.status_code == 200
