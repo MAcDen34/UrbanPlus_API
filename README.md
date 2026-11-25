@@ -144,6 +144,42 @@ I tried a few more things that didn't work, and I'm keeping them here so I don't
 
 ---
 
+## Quick start
+
+Run the API and dashboard locally in about two minutes. You need Python 3.13 and git.
+
+```bash
+git clone https://github.com/MAcDen34/UrbanPlus_API.git
+cd UrbanPlus_API
+python3 -m venv venv
+source venv/bin/activate        # on Windows: venv\Scripts\activate
+pip install -r requirements-api.txt
+cd src
+uvicorn api:app
+```
+
+Then open:
+
+- Dashboard: http://127.0.0.1:8000/dashboard
+- Interactive API docs: http://127.0.0.1:8000/docs
+
+The trained models, the SQLite database and the map data are committed to the repository, so nothing else needs downloading to run the service.
+
+### With Docker instead
+
+```bash
+docker build -t urbanplus .
+docker run --rm -p 8000:8000 urbanplus
+```
+
+The dashboard is then at http://127.0.0.1:8000/dashboard. The `docker-compose.yml` in the repo is for the production server, where it also starts Caddy for HTTPS on my domain, so it is not meant for local use.
+
+### Live version
+
+https://urbanplus-rw.tech/dashboard
+
+To rebuild the data and models from the raw WorldPop and census files, follow [Setup](#setup) below.
+
 ## Setup
 
 ```bash
